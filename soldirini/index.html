@@ -135,6 +135,11 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pri)}
 .welcome p{opacity:.92}.welcome .btn.ghost{color:#fff;border-color:rgba(255,255,255,.5)}
 .setup{border:2px solid var(--gold)}
 ul.tight{margin:6px 0;padding-left:18px}
+.imm{font-weight:700;margin:12px 0 2px;text-transform:capitalize;color:var(--pri)}
+.imrow{flex-direction:row;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line);font-size:14px;color:var(--ink);font-weight:500;cursor:pointer}
+.imrow input{width:20px;height:20px;accent-color:var(--pri);flex:none}
+.imrow .dd{display:flex;flex-direction:column;align-items:center;width:34px;font-size:11px;color:var(--mut);flex:none}.imrow .dd b{font-size:16px;color:var(--ink)}
+.imrow .tx{flex:1;min-width:0}.imrow.dup{opacity:.5;cursor:default}
 </style>
 </head>
 <body>
@@ -196,6 +201,8 @@ ul.tight{margin:6px 0;padding-left:18px}
       <div class="stack">
         <div class="monthbar"><h2>Progetti</h2><button class="btn sm" id="projNew">+ Nuovo progetto</button></div>
         <div id="projList"></div>
+        <div class="card" id="imBox"><h3>Importa ore da un foglio</h3><p class="muted sm">Hai già segnato le ore in un Foglio Google o in un file Excel (una riga per giorno con Data, orari e Ore)? Le porto nel calendario. Prima vedi l'anteprima e i giorni già presenti vengono saltati.</p>
+          <div class="acts"><button class="btn" id="imSheet">Da Foglio Google</button><label class="btn ghost" style="display:inline-flex;flex-direction:row;cursor:pointer;color:var(--pri);font-size:15px">Da file Excel<input type="file" id="imFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label></div></div>
         <div class="card" id="importBox" hidden><h3>Dati della vecchia app Rimborsi</h3><p class="muted sm">Su questo dispositivo ci sono le trasferte della app Rimborsi Km. Le porto in Soldirini nel progetto Bulldogs.</p><button class="btn" id="importBtn">Importa trasferte</button></div>
       </div>
       <div class="stack">
@@ -297,6 +304,17 @@ ul.tight{margin:6px 0;padding-left:18px}
     </div>
     <div class="blk"><label>Tipo di attività proposto<select id="pjTipo"><option value="allenamento">Allenamento</option><option value="partita">Partita</option><option value="lavoro">Lavoro</option><option value="altro">Altro</option></select></label></div>
     <div class="foot"><button class="btn danger" id="pjDel">Elimina</button><button class="btn" id="pjSave">Salva progetto</button></div>
+  </div>
+</div>
+
+<!-- finestra importa ore -->
+<div class="modal" id="imModal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="imTitle">
+    <div class="sheethead"><h2 id="imTitle">Importa ore</h2><button class="x" id="imClose" aria-label="Chiudi">×</button></div>
+    <p class="muted sm" id="imSub"></p>
+    <div><label>Nel progetto</label><div class="row" id="imProj" style="margin-top:4px"></div></div>
+    <div class="blk"><div class="row" style="align-items:center"><label class="check" style="flex:1"><input type="checkbox" id="imAll"> Seleziona tutte</label></div><div class="calc" id="imTot"></div><div id="imList"></div></div>
+    <div class="foot"><button class="btn ghost" id="imCancel">Annulla</button><button class="btn" id="imGo">Importa</button></div>
   </div>
 </div>
 

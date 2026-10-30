@@ -734,6 +734,148 @@ function importOld(){
   DB.meta.importedOld=true;changed();render();toast(`Importate ${n} trasferte nel progetto ${p.nome}`);
 }
 
+// ---- importa ore da Excel / Foglio Google ----
+// Legge un .xlsx (anche un Foglio Google esportato): in ogni foglio cerca la riga con "Data",
+// poi le colonne orari (Entrata/Uscita mattina e pomeriggio) e "Ore". I fogli senza "Data" (es. TOTALE) li salta.
+async function readXlsx(buf){
+  const zip=await JSZip.loadAsync(buf);
+  const P=s=>new DOMParser().parseFromString(s,'application/xml');
+  const txt=async p=>{const f=zip.file(p);return f?f.async('string'):null;};
+  const wbx=await txt('xl/workbook.xml');if(!wbx)throw new Error('non è un file Excel (.xlsx)');
+  const wb=P(wbx),rels=P(await txt('xl/_rels/workbook.xml.rels'));
+  const rel={};for(const r of rels.getElementsByTagName('Relationship'))rel[r.getAttribute('Id')]=r.getAttribute('Target');
+  const ssx=await txt('xl/sharedStrings.xml');
+  const ss=ssx?[...P(ssx).getElementsByTagName('si')].map(si=>[...si.getElementsByTagName('t')].filter(t=>t.parentNode.localName!=='rPh').map(t=>t.textContent).join('')):[];
+  const out=[];
+  for(const s of wb.getElementsByTagName('sheet')){
+    const rid=[...s.attributes].find(a=>a.localName==='id')?.value;const t=rel[rid];if(!t)continue;
+    const path=t.startsWith('/')?t.slice(1):'xl/'+t.replace(/^\.\//,'');
+    const x=await txt(path);if(!x)continue;
+    const rows=[];
+    for(const c of P(x).getElementsByTagName('c')){
+      const m=/^([A-Z]+)(\d+)$/.exec(c.getAttribute('r')||'');if(!m)continue;
+      const col=XL.colNum(m[1])-1,row=+m[2]-1,ty=c.getAttribute('t'),vEl=c.getElementsByTagName('v')[0];
+      let v=null;
+      if(ty==='s')v=vEl?(ss[+vEl.textContent]??''):null;
+      else if(ty==='inlineStr')v=[...c.getElementsByTagName('t')].map(t=>t.textContent).join('');
+      else if(ty==='str'||ty==='e')v=vEl?vEl.textContent:null;
+      else if(ty==='b')v=vEl?vEl.textContent==='1':null;
+      else v=vEl&&vEl.textContent!==''?+vEl.textContent:null;
+      if(v==null||v==='')continue;
+      (rows[row]=rows[row]||[])[col]=v;
+    }
+    out.push({name:s.getAttribute('name'),rows});
+  }
+  return out;
+}
+function xlDate(v){
+  if(typeof v==='number'&&v>20000&&v<80000){const d=new Date(Date.UTC(1899,11,30)+Math.floor(v)*864e5);return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;}
+  const s=String(v??'').trim();let m=/^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);if(m)return `${m[1]}-${pad(+m[2])}-${pad(+m[3])}`;
+  m=/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/.exec(s);if(m){let y=+m[3];if(y<100)y+=2000;return `${y}-${pad(+m[2])}-${pad(+m[1])}`;}
+  return null;
+}
+function xlTime(v){
+  if(typeof v==='number'){const f=v%1;if(v<0||(v>=1&&!f))return '';const t=Math.round(f*1440);return t>=1440?'':`${Math.floor(t/60)}:${pad(t%60)}`;}
+  const m=/^(\d{1,2})[:.](\d{2})(?::\d{2})?$/.exec(String(v??'').trim());return m&&+m[1]<24&&+m[2]<60?`${+m[1]}:${m[2]}`:'';
+}
+const xlNum=v=>{if(typeof v==='number')return v;const s=String(v??'').trim().replace(',','.');return s&&isFinite(+s)?+s:null;};
+function righeOre(sheets){
+  const res=[],seen=new Set();
+  for(const sh of sheets){
+    const R=sh.rows;let hr=-1,H=null,dc=-1;
+    for(let i=0;i<Math.min(R.length,15);i++){const r=R[i]||[];const k=[...r].findIndex(v=>typeof v==='string'&&/^\s*(data|giorno)\s*$/i.test(v));if(k>=0){hr=i;dc=k;H=[...r].map(v=>String(v??'').toLowerCase().trim());break;}}
+    if(hr<0)continue;
+    const find=re=>H.findIndex(h=>re.test(h));
+    let pairs=[[find(/entrata.*mat/),find(/uscita.*mat/)],[find(/entrata.*pom/),find(/uscita.*pom/)]].filter(([a,b])=>a>=0&&b>=0);
+    if(!pairs.length){const A=H.map((h,i)=>/entrata|inizio|dalle/.test(h)?i:-1).filter(i=>i>=0),B=H.map((h,i)=>/uscita|fine|alle/.test(h)?i:-1).filter(i=>i>=0);pairs=A.map((a,i)=>[a,B[i]]).filter(([a,b])=>b!=null);}
+    const oc=find(/^ore\b|ore\s*giorn|ore\s*lavor|totale\s*ore/);
+    for(let i=hr+1;i<R.length;i++){
+      const r=R[i];if(!r)continue;const d=xlDate(r[dc]);if(!d||seen.has(d))continue;
+      const fasce=[];for(const [a,b] of pairs){const da=xlTime(r[a]),al=xlTime(r[b]);if(da&&al&&min(al)>min(da))fasce.push({da,a:al});}
+      const oreF=oreFasce(fasce),oreS=oc>=0?xlNum(r[oc]):null;
+      const ore=oreS!=null&&oreS>0?r2(oreS):oreF;
+      if(!(ore>0))continue;
+      seen.add(d);res.push({data:d,fasce,ore,oreF,foglio:sh.name});
+    }
+  }
+  return res.sort((a,b)=>a.data.localeCompare(b.data));
+}
+async function pickSheet(){
+  const t=await getToken(true);
+  await loadScript('https://apis.google.com/js/api.js');
+  await new Promise((res,rej)=>gapi.load('picker',{callback:res,onerror:rej}));
+  return new Promise(res=>{
+    const view=new google.picker.DocsView(google.picker.ViewId.DOCS).setMimeTypes(SHEETS_MIME+','+XLSX_MIME).setIncludeFolders(true).setMode(google.picker.DocsViewMode.LIST);
+    new google.picker.PickerBuilder().addView(view).setOAuthToken(t).setDeveloperKey(CFG.API_KEY).setAppId(CFG.APP_ID)
+      .setTitle('Scegli il foglio con le ore').setLocale('it').setOrigin(location.origin)
+      .setCallback(d=>{if(d.action===google.picker.Action.PICKED){const x=d.docs[0];res({id:x.id,nome:x.name,mime:x.mimeType});}else if(d.action===google.picker.Action.CANCEL)res(null);})
+      .build().setVisible(true);
+  });
+}
+async function importDaSheet(){
+  if(!DB.meta.account){toast('Prima accedi con Google.','err');return;}
+  try{
+    const f=await pickSheet();if(!f)return;
+    busy(true,'Leggo il foglio…');
+    const url=f.mime===SHEETS_MIME?`${DRIVE}/files/${f.id}/export?mimeType=${encodeURIComponent(XLSX_MIME)}`:`${DRIVE}/files/${f.id}?alt=media`;
+    const r=await gfetch('GET',url,{raw:true});
+    const rows=righeOre(await readXlsx(await r.arrayBuffer()));
+    busy(false);openImport(rows,f.nome);
+  }catch(e){busy(false);toast(errMsg(e),'err');}
+}
+async function importDaFile(file){
+  try{busy(true,'Leggo il file…');const rows=righeOre(await readXlsx(await file.arrayBuffer()));busy(false);openImport(rows,file.name);}
+  catch(e){busy(false);toast('Non riesco a leggere il file: '+errMsg(e),'err');}
+}
+let IM=null;
+const imDup=(r,pid)=>eventi().some(e=>e.pid===pid&&e.data===r.data&&e.ore);
+function openImport(rows,src){
+  if(!rows.length){toast('Nel foglio non ho trovato righe con Data e ore.','err');return;}
+  const ps=progetti();if(!ps.length){toast('Prima crea il progetto (es. Explora).','err');return;}
+  const p=ps.find(x=>x.ore.attivo&&/explora/i.test(x.nome))||ps.find(x=>x.ore.attivo)||ps[0];
+  IM={rows,pid:p.id,sel:new Set()};
+  $('imSub').textContent=`${rows.length} giornate trovate in “${src}”. Controlla e togli quelle che non vuoi.`;
+  imSelDefault();renderIm();
+  $('imModal').hidden=false;document.body.classList.add('noscroll');
+}
+function imSelDefault(){IM.sel=new Set(IM.rows.map((r,i)=>i).filter(i=>!imDup(IM.rows[i],IM.pid)));}
+function renderIm(){
+  $('imProj').innerHTML=progetti().map(x=>`<button type="button" class="pchip ${x.id===IM.pid?'on':''}" data-pid="${x.id}" style="--c:${x.colore}"><i></i>${esc(x.nome)}</button>`).join('');
+  let h='',last='';
+  IM.rows.forEach((r,i)=>{
+    const ym=r.data.slice(0,7);if(ym!==last){h+=`<div class="imm">${monthName(ym)}</div>`;last=ym;}
+    const dup=imDup(r,IM.pid),d=parseYmd(r.data);
+    const orari=r.fasce.length?r.fasce.map(f=>`${f.da}–${f.a}`).join(', '):'senza orari';
+    const diff=r.fasce.length&&Math.abs(r.oreF-r.ore)>0.01?` <span class="muted">(dagli orari ${nf(r.oreF)})</span>`:'';
+    h+=`<label class="imrow ${dup?'dup':''}"><input type="checkbox" data-im="${i}" ${IM.sel.has(i)&&!dup?'checked':''} ${dup?'disabled':''}><span class="dd"><b>${d.getDate()}</b>${GIORNI[d.getDay()].slice(0,3)}</span><span class="tx">${esc(orari)}${dup?' · <i>già presente</i>':''}</span><b>${nf(r.ore)} h${diff}</b></label>`;
+  });
+  $('imList').innerHTML=h;imTot();
+}
+function imTot(){
+  const p=prog(IM.pid);let n=0,ore=0;
+  for(const i of IM.sel){const r=IM.rows[i];if(imDup(r,IM.pid))continue;n++;ore+=r.ore;}
+  const lordo=r2(ore*(p.ore.tariffa||0));
+  $('imTot').textContent=`${n} giornate · ${nf(ore)} h · ${eur(lordo)} lordi (${nf(p.ore.tariffa)} €/h)`;
+  const free=IM.rows.filter(r=>!imDup(r,IM.pid)).length;
+  $('imAll').checked=n>0&&n===free;
+  $('imGo').textContent=n?`Importa ${n} giornate`:'Importa';$('imGo').disabled=!n;
+}
+function doImport(){
+  const p=prog(IM.pid);const now=Date.now();let n=0;const ys=new Set();
+  const tipo=!p.def?.tipo||p.def.tipo==='allenamento'?'lavoro':p.def.tipo;
+  [...IM.sel].sort((a,b)=>a-b).forEach((i,k)=>{
+    const r=IM.rows[i];if(imDup(r,p.id))return;
+    const diff=r.fasce.length&&Math.abs(r.oreF-r.ore)>0.01;
+    const e={id:uid(),pid:p.id,data:r.data,tipo,titolo:'',squadra:'',rimborso:false,luogoId:'',luogo:'',km:'',
+      ore:true,fasce:r.fasce.map(f=>({da:f.da,a:f.a})),oreMan:(diff||!r.fasce.length)?r.ore:null,fisso:null,
+      tariffa:p.ore.tariffa,rit:p.ore.ritenuta,note:diff?`Ore dal foglio importato: ${nf(r.ore)}`:'',created:now+k,updatedAt:now};
+    D().eventi[e.id]=e;n++;ys.add(r.data.slice(0,4));
+  });
+  ys.forEach(y=>markExport([`ore|${y}`]));
+  closeIm();changed();render();toast(`Importate ${n} giornate nel progetto ${p.nome}`);
+}
+function closeIm(){$('imModal').hidden=true;document.body.classList.remove('noscroll');IM=null;}
+
 // ---- backup ----
 function backup(){download(new TextEncoder().encode(JSON.stringify(D(),null,1)),`soldirini-backup-${today()}.json`,'application/json');}
 
@@ -785,6 +927,14 @@ function bind(){
   $('pfSave').onclick=saveProfilo;
   $('accBox').addEventListener('click',e=>{if(e.target.id==='syncNow')sync(true);if(e.target.id==='logout')logout();if(e.target.id==='loginBtn2')login();});
   $('importBtn').onclick=importOld;$('backupBtn').onclick=backup;
+  // importa ore da foglio
+  $('imSheet').onclick=importDaSheet;
+  $('imFile').onchange=e=>{const f=e.target.files[0];if(f)importDaFile(f);e.target.value='';};
+  $('imClose').onclick=closeIm;$('imCancel').onclick=closeIm;$('imGo').onclick=doImport;
+  $('imModal').addEventListener('click',e=>{if(e.target.id==='imModal')closeIm();});
+  $('imProj').addEventListener('click',e=>{const b=e.target.closest('[data-pid]');if(!b)return;IM.pid=b.dataset.pid;imSelDefault();renderIm();});
+  $('imList').addEventListener('change',e=>{const t=e.target;if(t.dataset.im==null)return;const i=+t.dataset.im;t.checked?IM.sel.add(i):IM.sel.delete(i);imTot();});
+  $('imAll').onchange=()=>{if($('imAll').checked)imSelDefault();else IM.sel.clear();renderIm();};
   // finestra progetto
   $('pjClose').onclick=closeProj;$('pjSave').onclick=saveProj;$('pjDel').onclick=delProj;
   $('pjModal').addEventListener('click',e=>{if(e.target.id==='pjModal')closeProj();});
@@ -810,7 +960,7 @@ function bind(){
   addEventListener('online',()=>{prepGis();scheduleSync(500);});addEventListener('offline',renderSync);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)scheduleSync(800);});
   setInterval(()=>{if(pendingCount())sync(false);},60000);
-  document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!$('evModal').hidden)closeEv();else if(!$('pjModal').hidden)closeProj();}});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!$('imModal').hidden)closeIm();else if(!$('evModal').hidden)closeEv();else if(!$('pjModal').hidden)closeProj();}});
 }
 function openProjRefresh(keep){const p=keep.p,isNew=keep.isNew;D().progetti.__tmp=p;openProj('__tmp');delete D().progetti.__tmp;pe={p,isNew};pe.p.id=p.id;if(isNew){$('pjTitle').textContent='Nuovo progetto';$('pjDel').hidden=true;$('pjPreset').hidden=false;}}
 function renderDocSoft(){const open=[...document.querySelectorAll('#docList details[open]')].map(d=>d.dataset.pid);const y=scrollY;renderDoc();open.forEach(id=>{const d=document.querySelector(`#docList details[data-pid="${id}"]`);if(d)d.open=true;});scrollTo(0,y);}
