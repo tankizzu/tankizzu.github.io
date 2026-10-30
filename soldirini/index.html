@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Soldirini</title>
+<meta name="description" content="Rimborsi km, ore e ritenuta d'acconto per tutti i tuoi progetti, sul tuo Google Drive.">
+<meta name="theme-color" content="#0f6b5c">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="soldirini-tonda-192.png">
+<link rel="apple-touch-icon" href="soldirini-quadrata-192.png">
+<link rel="stylesheet" href="fonts.css">
+<style>
+:root{--bg:#f3f6f5;--card:#fff;--ink:#14211e;--mut:#5f6e6a;--line:#dde5e2;--pri:#0f6b5c;--pri2:#12806d;--pri-ink:#fff;--gold:#f2b632;--err:#b42318;--ok:#137a4b;--shadow:0 1px 2px rgba(15,40,35,.06),0 4px 14px rgba(15,40,35,.06);--r:14px}
+:root[data-theme="dark"]{--bg:#0e1513;--card:#17211e;--ink:#e6efec;--mut:#9aaba6;--line:#2a3733;--pri:#33a58f;--pri2:#2b8f7c;--shadow:none}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1513;--card:#17211e;--ink:#e6efec;--mut:#9aaba6;--line:#2a3733;--pri:#33a58f;--pri2:#2b8f7c;--shadow:none}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
+body.noscroll{overflow:hidden}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--pri)}
+[hidden]{display:none!important}
+header.top{position:sticky;top:0;z-index:20;background:#0f6b5c;color:#fff;padding:calc(env(safe-area-inset-top) + 8px) 16px 8px;display:flex;align-items:center;gap:10px}
+header.top img{width:34px;height:34px;border-radius:50%}
+header.top h1{font-size:19px;margin:0;font-weight:750;letter-spacing:.2px;flex:1}
+#acc{font-size:13px;opacity:.85;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip{border:0;border-radius:999px;padding:6px 11px;font-size:12.5px;font-weight:650;cursor:pointer;white-space:nowrap;max-width:46vw;overflow:hidden;text-overflow:ellipsis}
+.sync.ok{background:rgba(255,255,255,.18);color:#fff}.sync.busy{background:#f2b632;color:#3b2a00}.sync.off{background:#dbe3e0;color:#334}.sync.warn{background:#fff;color:#0f6b5c}.sync.err{background:#fde2e0;color:#b42318}
+nav.tabs{display:flex;gap:4px;padding:6px 10px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:calc(env(safe-area-inset-top) + 50px);z-index:19;overflow-x:auto}
+nav.tabs button{flex:1;border:0;background:none;padding:9px 8px;border-radius:10px;font-weight:650;color:var(--mut);cursor:pointer;white-space:nowrap}
+nav.tabs button.on{background:color-mix(in srgb,var(--pri) 13%,transparent);color:var(--pri)}
+main{max-width:1180px;margin:0 auto;padding:14px 16px 110px}
+.card{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);border:1px solid var(--line);padding:14px}
+.muted{color:var(--mut)}.sm{font-size:13px}
+h2{font-size:17px;margin:0}h3{font-size:15.5px;margin:0 0 8px;display:flex;align-items:center;gap:8px}
+.btn{border:0;background:var(--pri);color:#fff;border-radius:11px;padding:10px 15px;font-weight:650;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px;justify-content:center}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.ghost{background:transparent;color:var(--pri);border:1.5px solid color-mix(in srgb,var(--pri) 40%,transparent)}
+.btn.sm{padding:7px 11px;font-size:13.5px}
+.btn.danger{background:transparent;color:var(--err);border:1.5px solid color-mix(in srgb,var(--err) 40%,transparent)}
+.btn.google{background:#fff;color:#1f1f1f;border:1px solid #c9d1ce}
+.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.monthbar{display:flex;align-items:center;gap:6px;margin-bottom:12px}
+.monthbar h2{flex:1;text-transform:capitalize;font-size:19px}
+.ib{border:1px solid var(--line);background:var(--card);border-radius:10px;width:38px;height:38px;cursor:pointer;font-size:18px;display:grid;place-items:center}
+.seg{display:inline-flex;background:color-mix(in srgb,var(--mut) 14%,transparent);border-radius:10px;padding:3px}
+.seg button{border:0;background:none;padding:6px 11px;border-radius:8px;cursor:pointer;font-weight:600;color:var(--mut);font-size:13.5px}
+.seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+/* calendario */
+.calwrap{display:grid;gap:14px}
+@media(min-width:900px){.calwrap{grid-template-columns:1fr 360px;align-items:start}.side{position:sticky;top:120px}}
+#filtri{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.fchip,.pchip{border:1.5px solid var(--line);background:var(--card);border-radius:999px;padding:6px 11px;cursor:pointer;font-size:13.5px;font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.fchip i,.pchip i,h3 i,.prow>i{width:10px;height:10px;border-radius:50%;background:var(--c,var(--pri));display:inline-block;flex:none}
+.fchip.on,.pchip.on{border-color:var(--c,var(--pri));background:color-mix(in srgb,var(--c,var(--pri)) 14%,var(--card))}
+.grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.dow{text-align:center;font-size:12px;color:var(--mut);font-weight:650;padding:2px 0;text-transform:uppercase}
+.day{min-height:74px;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:4px;display:flex;flex-direction:column;align-items:stretch;gap:2px;cursor:pointer;text-align:left;overflow:hidden}
+.day.empty{background:transparent;border:0;cursor:default}
+.day.we .n{color:var(--mut)}
+.day .n{font-weight:700;font-size:13px}
+.day.today .n{background:var(--pri);color:#fff;border-radius:999px;width:22px;height:22px;display:grid;place-items:center}
+.day.sel{outline:2.5px solid var(--pri);outline-offset:-1px}
+.day.msel{background:color-mix(in srgb,var(--gold) 30%,var(--card));border-color:#d49a12}
+.evs{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ev{display:block;font-size:10.5px;line-height:1.25;padding:1px 4px;border-radius:4px;background:color-mix(in srgb,var(--c) 18%,var(--card));border-left:3px solid var(--c);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.more{font-size:10.5px;color:var(--mut);padding-left:3px}
+@media(max-width:520px){.day{min-height:58px;padding:3px}.ev{font-size:0;height:6px;padding:0;border-left-width:0;background:var(--c)}}
+.calhead{display:flex;gap:8px;align-items:center;margin:10px 0 0}
+.multibar{display:flex;align-items:center;gap:10px;margin-top:10px;padding:10px 12px;background:color-mix(in srgb,var(--gold) 22%,var(--card));border-radius:12px}
+.multibar span{flex:1;font-weight:600}
+.evrow{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;border-bottom:1px solid var(--line);padding:10px 2px;text-align:left;cursor:pointer}
+.evrow:last-child{border-bottom:0}
+.evrow .bar{width:4px;align-self:stretch;border-radius:4px;background:var(--c);flex:none}
+.evrow .tx{display:flex;flex-direction:column;min-width:0}
+.evrow small{color:var(--mut);font-size:12.5px}
+.evrow .dd{display:flex;flex-direction:column;align-items:center;width:34px;font-size:11px;color:var(--mut);flex:none}.evrow .dd b{font-size:17px;color:var(--ink)}
+.dayhead{display:flex;align-items:center;gap:8px;margin-bottom:4px}.dayhead h2{flex:1;text-transform:capitalize}
+.sec{margin-top:14px}
+.sechead{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+.sechead h2{flex:1}.sechead .badge{background:color-mix(in srgb,var(--pri) 14%,transparent);color:var(--pri);border-radius:999px;padding:1px 9px;font-weight:700;font-size:13px}
+.sechead::after{content:'▾';color:var(--mut);transition:.2s}
+.sec.closed .sechead::after{transform:rotate(-90deg)}.sec.closed #lista{display:none}
+.fab{position:fixed;right:18px;bottom:calc(18px + env(safe-area-inset-bottom));width:58px;height:58px;border-radius:18px;border:0;background:var(--gold);color:#3b2a00;font-size:30px;box-shadow:0 6px 18px rgba(0,0,0,.22);cursor:pointer;z-index:15}
+/* riepilogo e doc */
+.hero{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;background:linear-gradient(135deg,#0f6b5c,#12806d);color:#fff;border-radius:var(--r);padding:16px;margin-bottom:14px}
+.hero div{display:flex;flex-direction:column}.hero small{opacity:.8;font-size:12.5px}.hero b{font-size:19px}
+.hero div:first-child b{font-size:26px}
+@media(min-width:700px){.hero{grid-template-columns:repeat(4,1fr)}}
+.cards{display:grid;gap:12px}@media(min-width:760px){.cards{grid-template-columns:repeat(2,1fr)}}
+.pc{border-top:4px solid var(--c)}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed var(--line);font-size:14px}
+.kv span{color:var(--mut)}.kv.big{border-bottom:0;font-size:16px;padding-top:8px}.kv.big span{color:var(--ink);font-weight:650}
+.tw{overflow-x:auto;margin-top:14px}
+table.tab{width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;font-size:14px}
+.tab th,.tab td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+.tab th:first-child,.tab td:first-child{text-align:left;text-transform:capitalize}
+.tab tbody tr{cursor:pointer}.tab tfoot td{font-weight:700;background:color-mix(in srgb,var(--pri) 9%,var(--card))}
+details.extra{margin-top:8px}details.extra summary{cursor:pointer;color:var(--pri);font-weight:600;padding:6px 0}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px}.g2 .s2{grid-column:span 2}
+label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--mut);font-weight:600}
+input,select,textarea{border:1.5px solid var(--line);background:var(--card);border-radius:10px;padding:9px 10px;font-size:15px;color:var(--ink);font-weight:400;min-width:0;width:100%}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pri)}
+.check{flex-direction:row;align-items:center;gap:10px;font-size:15px;color:var(--ink);font-weight:650;padding:6px 0;cursor:pointer}
+.check input{width:20px;height:20px;accent-color:var(--pri)}
+/* progetti */
+.prow{display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;margin-bottom:8px;border-left:5px solid var(--c)}
+.prow>span:nth-child(2){display:flex;flex-direction:column;flex:1;min-width:0}.prow small{color:var(--mut)}.chev{font-size:22px;color:var(--mut)}
+.prow>i{width:14px;height:14px}
+.two{display:grid;gap:14px}@media(min-width:900px){.two{grid-template-columns:1fr 1fr;align-items:start}}
+.stack>*+*{margin-top:12px}
+/* finestre */
+.modal{position:fixed;inset:0;background:rgba(10,20,18,.5);z-index:50;display:flex;align-items:flex-end;justify-content:center}
+@media(min-width:700px){.modal{align-items:center}}
+.sheet{background:var(--card);width:100%;max-width:560px;max-height:94vh;overflow:auto;border-radius:20px 20px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
+@media(min-width:700px){.sheet{border-radius:20px}}
+.sheethead{display:flex;align-items:center;gap:10px;margin-bottom:10px;position:sticky;top:-16px;background:var(--card);padding:6px 0;z-index:2}
+.sheethead h2{flex:1}
+.x{border:0;background:color-mix(in srgb,var(--mut) 16%,transparent);border-radius:10px;width:34px;height:34px;cursor:pointer;font-size:19px;flex:none}
+.row{display:flex;gap:6px;flex-wrap:wrap}
+.blk{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.blk>label+label,.blk>label+div,.blk>div+label{margin-top:8px}
+.sub{padding:10px 12px;margin-top:6px;border-radius:12px;background:color-mix(in srgb,var(--pri) 6%,var(--card));border:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.fascia,.luogo{display:flex;gap:6px;align-items:center}.fascia input{flex:1}.luogo input:first-child{flex:2}.luogo input{flex:1}
+.calc{font-weight:650;color:var(--pri);font-size:14px}
+.sw{width:32px;height:32px;border-radius:50%;border:3px solid transparent;cursor:pointer}.sw.on{border-color:var(--ink);box-shadow:inset 0 0 0 2px var(--card)}
+#pjLogo{display:flex;align-items:center;gap:10px}#pjLogo img{height:64px;border-radius:6px;border:1px solid var(--line)}
+.foot{display:flex;gap:8px;margin-top:16px;position:sticky;bottom:-16px;background:var(--card);padding:10px 0}
+.foot .btn{flex:1}
+.toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom));transform:translate(-50%,20px);background:#14211e;color:#fff;padding:11px 16px;border-radius:12px;opacity:0;pointer-events:none;transition:.25s;z-index:80;max-width:min(92vw,520px);font-weight:550;text-align:center}
+.toast.show{opacity:1;transform:translate(-50%,0)}.toast.err{background:#b42318}
+.busyov{position:fixed;inset:0;background:rgba(255,255,255,.6);z-index:90;display:grid;place-items:center}
+.busyov div{background:var(--card);padding:16px 20px;border-radius:14px;box-shadow:var(--shadow);font-weight:650;color:var(--ink)}
+.welcome{background:linear-gradient(135deg,#0f6b5c,#12806d);color:#fff;border:0}
+.welcome p{opacity:.92}.welcome .btn.ghost{color:#fff;border-color:rgba(255,255,255,.5)}
+.setup{border:2px solid var(--gold)}
+ul.tight{margin:6px 0;padding-left:18px}
+</style>
+</head>
+<body>
+<header class="top">
+  <img src="soldirini-tonda-192.png" alt="">
+  <h1>Soldirini</h1>
+  <span id="acc"></span>
+  <button id="sync" class="chip sync">…</button>
+</header>
+<nav class="tabs">
+  <button data-tab="cal" class="on">Calendario</button>
+  <button data-tab="rie">Riepilogo</button>
+  <button data-tab="doc">Documenti</button>
+  <button data-tab="pro">Progetti</button>
+</nav>
+<main>
+  <div id="welcome" class="card welcome" hidden>
+    <h2>Benvenuto in Soldirini</h2>
+    <p>Segna nel calendario allenamenti, partite e lavori: Soldirini calcola rimborsi km, ore e ritenuta d'acconto e prepara i documenti su <b>il tuo</b> Google Drive.</p>
+    <div class="acts"><button class="btn google" id="loginW">Accedi con Google</button><button class="btn ghost" id="skipW">Prova senza accedere</button></div>
+  </div>
+  <div id="setup" class="card setup" hidden>
+    <h2>Dove salvo i tuoi file?</h2>
+    <p class="muted">Creo una cartella <b>Soldirini</b> sul tuo Drive. Dentro ci saranno le cartelle dei progetti e i Fogli Google. Soldirini vede solo i file che crea lei.</p>
+    <div class="acts"><button class="btn" id="setupMy">In “Il mio Drive”</button><button class="btn ghost" id="setupPick">Scegli una cartella…</button></div>
+  </div>
+
+  <section id="v-cal">
+    <div class="calwrap">
+      <div>
+        <div class="monthbar"><button class="ib" id="prev" aria-label="Mese prima">‹</button><h2 id="mese"></h2><button class="btn ghost sm" id="oggi">Oggi</button><button class="ib" id="next" aria-label="Mese dopo">›</button></div>
+        <div id="filtri"></div>
+        <div class="grid" id="grid"></div>
+        <div class="calhead"><button class="btn ghost sm" id="multiBtn">Più giorni</button><span class="muted sm">Tocca un giorno per vederlo, toccalo di nuovo per aggiungere.</span></div>
+        <div class="multibar" id="multiBar" hidden><span id="multiN"></span><button class="btn sm" id="multiAdd">Aggiungi attività</button></div>
+      </div>
+      <div class="side">
+        <div class="card" id="dayBox"><div class="dayhead"><h2 id="dayTitle"></h2><button class="btn sm" id="dayAdd">+ Aggiungi</button></div><div id="dayList"></div></div>
+        <div class="card sec" id="listaSec"><div class="sechead" id="listaHead"><h2>Attività del mese</h2><span class="badge" id="listaN">0</span></div><div id="lista"></div></div>
+      </div>
+    </div>
+    <button class="fab" id="fab" aria-label="Aggiungi attività">+</button>
+  </section>
+
+  <section id="v-rie" hidden>
+    <div class="monthbar"><button class="ib" id="rPrev">‹</button><h2 id="rieTitle"></h2><div class="seg" id="rieSeg"><button data-m="mese">Mese</button><button data-m="anno">Anno</button></div><button class="ib" id="rNext">›</button></div>
+    <div id="rieTot"></div>
+    <div class="cards" id="rieCards"></div>
+    <div id="rieAnno"></div>
+  </section>
+
+  <section id="v-doc" hidden>
+    <div class="monthbar"><button class="ib" id="dPrev">‹</button><h2 id="docTitle"></h2><button class="ib" id="dNext">›</button></div>
+    <div class="cards" id="docList"></div>
+  </section>
+
+  <section id="v-pro" hidden>
+    <div class="two">
+      <div class="stack">
+        <div class="monthbar"><h2>Progetti</h2><button class="btn sm" id="projNew">+ Nuovo progetto</button></div>
+        <div id="projList"></div>
+        <div class="card" id="importBox" hidden><h3>Dati della vecchia app Rimborsi</h3><p class="muted sm">Su questo dispositivo ci sono le trasferte della app Rimborsi Km. Le porto in Soldirini nel progetto Bulldogs.</p><button class="btn" id="importBtn">Importa trasferte</button></div>
+      </div>
+      <div class="stack">
+        <div class="card"><h3>Account</h3><div id="accBox"></div></div>
+        <div class="card"><h3>I tuoi dati (per le ricevute)</h3>
+          <div class="g2">
+            <label>Cognome<input id="pf-cognome" autocomplete="family-name"></label><label>Nome<input id="pf-nome" autocomplete="given-name"></label>
+            <label>Nato/a a<input id="pf-natoA"></label><label>Il<input type="date" id="pf-dataNascita"></label>
+            <label>Residente in<input id="pf-residenza"></label><label>Via<input id="pf-via"></label>
+            <label class="s2">Codice fiscale<input id="pf-cf" autocapitalize="characters"></label>
+            <label>Auto: modello<input id="pf-modello"></label><label>Targa<input id="pf-targa" autocapitalize="characters"></label>
+          </div>
+          <div class="acts"><button class="btn" id="pfSave">Salva dati</button></div>
+        </div>
+        <div class="card"><h3>Copia di sicurezza</h3><p class="muted sm">Scarica tutti i tuoi dati in un file.</p><button class="btn ghost sm" id="backupBtn">Scarica backup</button></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- finestra attività -->
+<div class="modal" id="evModal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="evTitle">
+    <div class="sheethead"><h2 id="evTitle">Nuova attività</h2><button class="x" id="evClose" aria-label="Chiudi">×</button></div>
+    <p class="muted sm" id="evSub"></p>
+    <label id="evDateRow">Giorno<input type="date" id="evDate"></label>
+    <div class="blk"><label>Progetto</label><div class="row" id="evProj"></div></div>
+    <div class="blk"><label>Tipo</label>
+      <div class="row" id="evTipo"><button type="button" class="pchip" data-t="allenamento">Allenamento</button><button type="button" class="pchip" data-t="partita">Partita</button><button type="button" class="pchip" data-t="amichevole">Amichevole</button><button type="button" class="pchip" data-t="lavoro">Lavoro</button><button type="button" class="pchip" data-t="altro">Altro</button></div>
+      <label style="margin-top:8px"><span id="evTitoloL">Descrizione</span><input id="evTitolo"></label>
+    </div>
+    <div class="blk">
+      <label class="check"><input type="checkbox" id="evRimb"> Rimborso km</label>
+      <div class="sub" id="evRimbBox">
+        <label>Luogo<select id="evLuogo"></select></label>
+        <label id="evNewLuogo" hidden>Nome del nuovo luogo<input id="evNewLuogoN" placeholder="es. Palestra Formello"></label>
+        <label><span id="evOrig">Km andata e ritorno</span><input id="evKm" inputmode="decimal"></label>
+      </div>
+    </div>
+    <div class="blk">
+      <label class="check"><input type="checkbox" id="evOre"> Ore / ritenuta d'acconto</label>
+      <div class="sub" id="evOreBox">
+        <label class="check" style="font-weight:600"><input type="checkbox" id="evFisso"> Compenso fisso (non a ore)</label>
+        <div id="evFasceBox" class="stack">
+          <div class="row" id="evPreset"></div>
+          <div id="evFasce" class="stack"></div>
+          <div class="row"><button type="button" class="btn ghost sm" id="evFasceAdd">+ Orario</button><span class="muted" id="evOreTot" style="align-self:center"></span></div>
+        </div>
+        <label id="evFissoBox">Compenso lordo €<input id="evFissoV" inputmode="decimal"></label>
+        <div class="g2"><label>€ all'ora<input id="evTar" inputmode="decimal"></label><label>Ritenuta %<input id="evRit" inputmode="decimal"></label></div>
+        <div class="calc" id="evCalc"></div>
+      </div>
+    </div>
+    <div class="blk"><label>Note<input id="evNote" placeholder="facoltative"></label></div>
+    <div class="foot"><button class="btn danger" id="evDel">Elimina</button><button class="btn ghost" id="evDup">Copia</button><button class="btn" id="evSave">Salva</button></div>
+  </div>
+</div>
+
+<!-- finestra progetto -->
+<div class="modal" id="pjModal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pjTitle">
+    <div class="sheethead"><h2 id="pjTitle">Nuovo progetto</h2><button class="x" id="pjClose" aria-label="Chiudi">×</button></div>
+    <div id="pjPreset" class="sub" style="margin-bottom:10px"><span class="sm">Parti da un modello già pronto:</span><div class="row"><button type="button" class="pchip" data-preset="bulldogs" style="--c:#1b3a7a"><i></i>Bulldogs Rignano (ricevuta + nota km)</button></div></div>
+    <label>Nome (squadra, società, lavoro…)<input id="pjNome" placeholder="es. Bulldogs Under15, Explora"></label>
+    <div class="blk"><label>Colore</label><div class="row" id="pjColori"></div></div>
+    <div class="blk"><label>Cartella su Drive</label><div id="pjDove"></div></div>
+    <div class="blk">
+      <label class="check"><input type="checkbox" id="pjRimb"> Rimborso spese km (ricevuta a piè di lista + nota)</label>
+      <div class="sub" id="pjRimbBox">
+        <div class="g2">
+          <label>Parto da<input id="pjR-origine" placeholder="es. Rignano Flaminio"></label>
+          <label>Squadra (per “Allenamento …”)<input id="pjR-squadra" placeholder="es. Under15"></label>
+          <label class="s2">In occasione di<input id="pjR-occasione" placeholder="es. Istruttore Settore Under15"></label>
+          <label>Mansione<input id="pjR-mansione" placeholder="es. Coach"></label>
+          <label>Tariffa ACI €/km<input id="pjR-tariffa" inputmode="decimal"></label>
+          <label class="s2">Tariffa calcolata il<input id="pjR-tariffaData" placeholder="es. 11-10-26"></label>
+        </div>
+        <label>Luoghi (km andata e ritorno)</label>
+        <div id="pjLuoghi" class="stack"></div>
+        <div><button type="button" class="btn ghost sm" id="pjLuogoAdd">+ Luogo</button></div>
+        <details><summary class="sm" style="cursor:pointer;color:var(--pri);font-weight:600">Intestazione della società e logo</summary>
+          <div class="g2" style="margin-top:8px">
+            <label>Riga 1<input id="pjA-riga1"></label><label>Nome grande<input id="pjA-nomeBig"></label>
+            <label class="s2">Tipo società<input id="pjA-nome" placeholder="es. Associazione Sportiva Dilettantistica"></label>
+            <label class="s2">Via<input id="pjA-via"></label><label>Città<input id="pjA-citta"></label><label>C.F.<input id="pjA-cf"></label>
+          </div>
+          <label style="margin-top:8px">Logo</label><div id="pjLogo"></div>
+          <label class="btn ghost sm" style="margin-top:6px;display:inline-flex;width:auto;cursor:pointer;flex-direction:row">Carica logo<input type="file" id="pjLogoFile" accept="image/*" hidden></label>
+        </details>
+      </div>
+    </div>
+    <div class="blk">
+      <label class="check"><input type="checkbox" id="pjOre"> Ore e ritenuta d'acconto</label>
+      <div class="sub" id="pjOreBox">
+        <div class="g2"><label>€ lordi all'ora<input id="pjO-tariffa" inputmode="decimal"></label><label>Ritenuta %<input id="pjO-ritenuta" inputmode="decimal"></label></div>
+        <label>Orari tipici</label><div id="pjFasce" class="stack"></div>
+        <div><button type="button" class="btn ghost sm" id="pjFasciaAdd">+ Orario tipico</button></div>
+      </div>
+    </div>
+    <div class="blk"><label>Tipo di attività proposto<select id="pjTipo"><option value="allenamento">Allenamento</option><option value="partita">Partita</option><option value="lavoro">Lavoro</option><option value="altro">Altro</option></select></label></div>
+    <div class="foot"><button class="btn danger" id="pjDel">Elimina</button><button class="btn" id="pjSave">Salva progetto</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="busyov" id="busy" hidden><div id="busyMsg">Attendi…</div></div>
+<script src="lib/jszip.min.js"></script>
+<script src="lib/jspdf.umd.min.js"></script>
+<script src="lib/html2canvas.min.js"></script>
+<script src="docs.js"></script>
+<script src="xlsx.js"></script>
+<script src="modelli.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

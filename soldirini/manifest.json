@@ -1,0 +1,19 @@
+{
+  "name": "Soldirini",
+  "short_name": "Soldirini",
+  "description": "Rimborsi km, ore e ritenuta d'acconto per tutti i tuoi progetti, sul tuo Google Drive.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f6b5c",
+  "theme_color": "#0f6b5c",
+  "lang": "it",
+  "icons": [
+    {"src": "soldirini-tonda-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "soldirini-tonda-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "soldirini-quadrata-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+    {"src": "soldirini-quadrata-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}
