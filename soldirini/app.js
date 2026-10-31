@@ -544,7 +544,26 @@ function dupEv(){const e=clone(readEv());const d=$('evDate').value;md={dates:[d]
 function closeEv(){$('evModal').hidden=true;document.body.classList.remove('noscroll');}
 
 // ---- riepilogo ----
-let rieMode='mese';
+let rieMode='mese',rieSplit=false;
+// dettaglio del "Da ricevere": compensi con ritenuta e rimborsi spese, separati
+function splitCard(per,tot){
+  const ps=Object.values(per).filter(t=>t.n);
+  const comp=ps.filter(t=>t.lordo),rimb=ps.filter(t=>t.rimb||t.km);
+  const row=(t,v)=>`<div class="kv"><span><i class="dot" style="--c:${t.p.colore}"></i>${esc(t.p.nome)}</span><b>${v}</b></div>`;
+  return `<div class="split">
+    <div class="card pc" style="--c:#a16207"><h3>Compensi · ritenuta d'acconto</h3>
+      ${comp.map(t=>row(t,`${t.ore?nf(t.ore)+' h · ':''}${eur(t.lordo)} lordi`)).join('')||'<p class="muted sm">Nessun compenso in questo periodo.</p>'}
+      <div class="kv"><span>Lordo</span><b>${eur(tot.lordo)}</b></div>
+      <div class="kv"><span>Ritenuta d'acconto</span><b>− ${eur(tot.rit)}</b></div>
+      <div class="kv big"><span>Netto compensi</span><b>${eur(tot.netto)}</b></div></div>
+    <div class="card pc" style="--c:#1b3a7a"><h3>Rimborsi spese</h3>
+      ${rimb.map(t=>row(t,`${nf(t.km,1)} km · ${eur(t.rimb)}`)).join('')||'<p class="muted sm">Nessun rimborso in questo periodo.</p>'}
+      <div class="kv"><span>Km totali</span><b>${nf(tot.km,1)} km</b></div>
+      <div class="kv big"><span>Totale rimborsi</span><b>${eur(tot.rimb)}</b></div>
+      <p class="muted sm">Sui rimborsi non c'è ritenuta.</p></div>
+  </div>
+  <div class="card" style="margin-bottom:14px"><div class="kv big" style="padding:0"><span>Netto compensi + rimborsi</span><b>${eur(r2(tot.netto+tot.rimb))}</b></div></div>`;
+}
 function renderRiepilogo(){
   const key=rieMode==='mese'?cur:cur.slice(0,4);
   $('rieTitle').textContent=rieMode==='mese'?monthName(cur):'Anno '+cur.slice(0,4);
@@ -555,7 +574,8 @@ function renderRiepilogo(){
     ${t.km||!p||p.rimborso.attivo?`<div class="kv"><span>Rimborsi km</span><b>${nf(t.km,1)} km · ${eur(t.rimb)}</b></div>`:''}
     ${t.lordo||!p||p.ore.attivo?`<div class="kv"><span>Ore</span><b>${nf(t.ore)}</b></div><div class="kv"><span>Lordo</span><b>${eur(t.lordo)}</b></div><div class="kv"><span>Ritenuta</span><b>− ${eur(t.rit)}</b></div><div class="kv"><span>Netto</span><b>${eur(t.netto)}</b></div>`:''}
     <div class="kv big"><span>Totale da ricevere</span><b>${eur(r2(t.netto+t.rimb))}</b></div></div>`;
-  $('rieTot').innerHTML=`<div class="hero"><div><small>Da ricevere</small><b>${eur(r2(tot.netto+tot.rimb))}</b></div><div><small>Ritenuta d'acconto</small><b>${eur(tot.rit)}</b></div><div><small>Lordo compensi</small><b>${eur(tot.lordo)}</b></div><div><small>Rimborsi km</small><b>${eur(tot.rimb)}</b></div></div>`;
+  $('rieTot').innerHTML=`<div class="hero"><div class="herotot" data-tot="1" role="button" tabindex="0" aria-expanded="${rieSplit}"><small>Da ricevere ${rieSplit?'▴':'▾'}</small><b>${eur(r2(tot.netto+tot.rimb))}</b></div><div><small>Ritenuta d'acconto</small><b>${eur(tot.rit)}</b></div><div><small>Lordo compensi</small><b>${eur(tot.lordo)}</b></div><div><small>Rimborsi km</small><b>${eur(tot.rimb)}</b></div></div>`;
+  if(rieSplit)$('rieTot').innerHTML+=splitCard(per,tot);
   $('rieCards').innerHTML=Object.values(per).filter(t=>t.n).map(t=>card(t,t.p)).join('')||'<p class="muted">Nessuna attività in questo periodo.</p>';
   if(rieMode==='anno'){
     const y=cur.slice(0,4);let rows='';const T={rimb:0,lordo:0,rit:0,netto:0};
@@ -916,6 +936,8 @@ function bind(){
   for(const id of ['evFissoV','evTar','evRit','evKm'])$(id).addEventListener('input',calcEv);
   $('evSave').onclick=saveEv;$('evDel').onclick=delEv;$('evDup').onclick=dupEv;
   // riepilogo
+  $('rieTot').addEventListener('click',e=>{if(e.target.closest('[data-tot]')){rieSplit=!rieSplit;renderRiepilogo();}});
+  $('rieTot').addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.closest('[data-tot]')){e.preventDefault();rieSplit=!rieSplit;renderRiepilogo();}});
   $('rieSeg').addEventListener('click',e=>{const b=e.target.closest('[data-m]');if(b){rieMode=b.dataset.m;render();}});
   $('rieAnno').addEventListener('click',e=>{const r=e.target.closest('tr[data-ym]');if(r){cur=r.dataset.ym;rieMode='mese';render();}});
   // documenti
