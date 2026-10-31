@@ -11,7 +11,7 @@ const r1=n=>Math.round((+n||0)*10)/10;
 const nowY=()=>new Date().getFullYear();
 
 // ---------- finestra di conferma (al posto di confirm) ----------
-function ask(msg,btns){return new Promise(res=>{const m=$('dlg');$('dlgMsg').textContent=msg;
+function ask(msg,btns,html){return new Promise(res=>{const m=$('dlg');if(html)$('dlgMsg').innerHTML=msg;else $('dlgMsg').textContent=msg;
   $('dlgBtns').innerHTML=btns.map((b,i)=>`<button class="btn ${b.cls||''}" data-i="${i}">${esc(b.t)}</button>`).join('');
   m.hidden=false;$('dlgBtns').onclick=e=>{const x=e.target.closest('[data-i]');if(!x)return;m.hidden=true;res(btns[+x.dataset.i].v);};});}
 const conferma=(msg,ok='Sì',cls='')=>ask(msg,[{t:'Annulla',v:false,cls:'ghost'},{t:ok,v:true,cls}]);
@@ -175,23 +175,52 @@ function dovuti(prefix){
     if(imp>0)out.push({key:k,pid,ym,t,p,imp,pag:pagamenti()[k]?.pagato?pagamenti()[k]:null});}
   return out.sort((a,b)=>a.ym.localeCompare(b.ym)||a.p.nome.localeCompare(b.p.nome));
 }
-function setPagato(key,on){pagamenti()[key]={pagato:!!on,data:on?today():'',updatedAt:Date.now()};changed();render();toast(on?'Segnato come pagato':'Tolto “pagato”');}
+async function chiediPagamento(key){
+  const g=pagamenti()[key];const [pid,ym,t]=key.split('|');const p=prog(pid);
+  const btns=[{t:'Annulla',v:null,cls:'ghost'}];if(g?.pagato)btns.push({t:'Non pagato',v:'no',cls:'danger'});btns.push({t:'Salva',v:'ok'});
+  const v=await ask(`<b>${esc(p?.nome||'')}</b> · ${t==='r'?'rimborso spese':'compensi'} di ${esc(monthName(ym))}<br><span class="muted sm">Quando hai ricevuto i soldi? Decide l’anno per le tasse.</span><input type="date" id="dlgDate" value="${g?.pagato&&g.data?g.data:today()}" style="margin-top:10px">`,btns,true);
+  if(v==='ok')setPagato(key,true,$('dlgDate').value||today());else if(v==='no')setPagato(key,false);
+}
+function setPagato(key,on,data){pagamenti()[key]={pagato:!!on,data:on?(data||today()):'',updatedAt:Date.now()};changed();render();toast(on?'Pagato il '+parseYmd(data||today()).toLocaleDateString('it-IT'):'Tolto “pagato”');return;pagamenti()[key]={pagato:!!on,data:on?today():'',updatedAt:Date.now()};changed();render();toast(on?'Segnato come pagato':'Tolto “pagato”');}
 const giorniDa=ym=>Math.max(0,Math.round((new Date()-new Date(+ym.slice(0,4),+ym.slice(5,7),0))/864e5));
 
 // ---------- soglie ----------
+const baseAnno=()=>DB.meta.rieBase||'lavoro';
+const pagYm=(pid,ym,t)=>{const g=pagamenti()[`${pid}|${ym}|${t}`];return g?.pagato&&g.data?g.data.slice(0,7):null;};
+// totali dell'anno: per mese di lavoro oppure per data in cui sei stato pagato (principio di cassa)
+function aggrega(y,base){
+  base=base||baseAnno();
+  if(base!=='cassa'){const r=riepilogo(y);const mesi=[];for(let m=1;m<=12;m++)mesi.push(riepilogo(`${y}-${pad(m)}`).tot);return {...r,mesi,fuori:0};}
+  const z=()=>({km:0,rimb:0,ore:0,lordo:0,rit:0,netto:0,n:0});
+  const per={};for(const p of progetti())per[p.id]={p,...z()};const tot=z();const mesi=Array.from({length:12},z);let fuori=0;
+  const add=(dst,t,keys)=>keys.forEach(k=>dst[k]=r2(dst[k]+t[k]));
+  for(const ym of new Set(eventi().map(e=>e.data.slice(0,7)))){
+    for(const [pid,t] of Object.entries(riepilogo(ym).per)){if(!per[pid]||!t.n)continue;
+      const po=pagYm(pid,ym,'o'),pr=pagYm(pid,ym,'r');let c=false;
+      const O=['ore','lordo','rit','netto'],R=['km','rimb'];
+      if(t.lordo){if(po&&po.startsWith(y)){add(per[pid],t,O);add(tot,t,O);add(mesi[+po.slice(5)-1],t,O);c=true;}else if(!po&&ym.startsWith(y))fuori=r2(fuori+t.netto);}
+      if(t.rimb){if(pr&&pr.startsWith(y)){add(per[pid],t,R);add(tot,t,R);add(mesi[+pr.slice(5)-1],t,R);c=true;}else if(!pr&&ym.startsWith(y))fuori=r2(fuori+t.rimb);}
+      if(c){per[pid].n+=t.n;tot.n+=t.n;}}}
+  mesi.forEach(m=>m.n=m.lordo||m.rimb?1:0);
+  return {per,tot,mesi,fuori};
+}
 function soglieAnno(y){
-  const lordo={};for(const e of eventi()){if(!e.data.startsWith(y)||!e.ore)continue;const p=prog(e.pid);if(!p)continue;const c=p.ore.categoria||'altro';lordo[c]=r2((lordo[c]||0)+soldiOre(e).lordo);}
+  const A=aggrega(y);const lordo={};
+  for(const t of Object.values(A.per)){const c=t.p.ore.categoria||'altro';lordo[c]=r2((lordo[c]||0)+t.lordo);}
   return impost().soglie.map(s=>({...s,usato:lordo[s.cat]||0}));
 }
 function soglieHtml(y){
-  return soglieAnno(y).map(s=>{const pc=s.limite?s.usato/s.limite*100:0;const cls=pc>=100?'bad':pc>=80?'warn':'';
+  const ps=progetti().filter(p=>p.ore.attivo);
+  const intro=`<p class="muted sm" style="margin-top:0">Alcuni compensi hanno un tetto annuo oltre il quale cambiano tasse o contributi. Qui vedi quanto hai già incassato per ogni tipo. Dimmi di che tipo è ogni progetto con le ore:</p>`+
+    (ps.length?`<div class="g2">${ps.map(p=>`<label><span><i class="dot" style="background:${p.colore}"></i>${esc(p.nome)}</span><select data-cat="${p.id}">${Object.entries(CATEGORIE).map(([k,v])=>`<option value="${k}" ${(p.ore.categoria||'altro')===k?'selected':''}>${v}</option>`).join('')}</select></label>`).join('')}</div>`:'<p class="muted sm">Nessun progetto con ore e ritenuta.</p>');
+  return intro+soglieAnno(y).map(s=>{const pc=s.limite?s.usato/s.limite*100:0;const cls=pc>=100?'bad':pc>=80?'warn':'';
     return `<div class="soglia ${cls}"><div class="sh"><b>${esc(s.nome)}</b><span>${eur(s.usato)} di ${eur(s.limite)}</span></div><div class="meter"><i style="width:${Math.min(100,pc).toFixed(1)}%"></i></div><small>${pc>=100?'Soglia superata: parlane con il commercialista.':pc>=80?`Sei all’${Math.round(pc)}%: ti mancano ${eur(s.limite-s.usato)}.`:`Ti mancano ${eur(s.limite-s.usato)}.`}</small></div>`;}).join('')+
-    '<p class="muted sm">Valori indicativi e modificabili in Progetti → Impostazioni: verifica le soglie con il tuo commercialista.</p>';
+    `<p class="muted sm">Conteggio ${baseAnno()==='cassa'?'per data di pagamento':'per mese di lavoro'}. Importi delle soglie modificabili in Progetti → Impostazioni: verificali con il tuo commercialista.</p>`;
 }
 
 // ---------- grafico dell'anno ----------
-function graficoAnno(y){
-  const V=[];for(let m=1;m<=12;m++){const t=riepilogo(`${y}-${pad(m)}`).tot;V.push({m,netto:t.netto,rimb:t.rimb});}
+function graficoAnno(y,mesi){
+  const V=[];for(let m=1;m<=12;m++){const t=mesi?mesi[m-1]:riepilogo(`${y}-${pad(m)}`).tot;V.push({m,netto:t.netto,rimb:t.rimb});}
   const max=Math.max(1,...V.map(v=>v.netto+v.rimb));const step=[50,100,200,250,500,1000,2000,5000].find(s=>max/s<=5)||10000;const top=Math.ceil(max/step)*step;
   const W=640,H=220,L=46,B=26,T=10,bw=(W-L-8)/12;const y_=v=>T+(H-T-B)*(1-v/top);
   let g='';for(let v=0;v<=top;v+=step)g+=`<line x1="${L}" x2="${W-4}" y1="${y_(v)}" y2="${y_(v)}" class="gl"/><text x="${L-6}" y="${y_(v)+4}" class="ax" text-anchor="end">${v>=1000?(v/1000)+'k':v}</text>`;
@@ -205,41 +234,42 @@ renderRiepilogo=function(){
   const y=cur.slice(0,4);const key=rieMode==='mese'?cur:y;
   $('rieTitle').textContent=rieMode==='mese'?monthName(cur):'Anno '+y;
   document.querySelectorAll('#rieSeg button').forEach(b=>b.classList.toggle('on',b.dataset.m===rieMode));
-  const {per,tot}=riepilogo(key);
+  const A=rieMode==='anno'?aggrega(y):null;const {per,tot}=A||riepilogo(key);
   const dv=dovuti();const daInc=r2(dv.filter(d=>!d.pag).reduce((a,d)=>a+d.imp,0));
   const card=(t,p)=>`<div class="card pc" style="--c:${p.colore}"><h3><i></i>${esc(p.nome)}${p.ore.attivo&&p.ore.categoria?`<em class="tag">${esc(CATEGORIE[p.ore.categoria])}</em>`:''}</h3>
     <div class="kv"><span>Attività</span><b>${t.n}</b></div>
     ${t.km||t.rimb||p.rimborso.attivo?`<div class="kv"><span>Rimborsi spese</span><b>${nf(t.km,1)} km · ${eur(t.rimb)}</b></div>`:''}
     ${t.lordo||p.ore.attivo?`<div class="kv"><span>Ore</span><b>${nf(t.ore)}</b></div><div class="kv"><span>Lordo</span><b>${eur(t.lordo)}</b></div><div class="kv"><span>Ritenuta</span><b>− ${eur(t.rit)}</b></div><div class="kv"><span>Netto</span><b>${eur(t.netto)}</b></div>`:''}
     <div class="kv big"><span>Totale</span><b>${eur(r2(t.netto+t.rimb))}</b></div></div>`;
-  $('rieTot').innerHTML=`<div class="hero"><div class="herotot" data-tot="1" role="button" tabindex="0" aria-expanded="${rieSplit}"><small>${rieMode==='mese'?'Guadagnato nel mese':'Guadagnato nell’anno'} ${rieSplit?'▴':'▾'}</small><b>${eur(r2(tot.netto+tot.rimb))}</b></div><div><small>Ancora da incassare</small><b>${eur(daInc)}</b></div><div><small>Ritenuta d'acconto</small><b>${eur(tot.rit)}</b></div><div><small>Rimborsi spese</small><b>${eur(tot.rimb)}</b></div></div>`;
+  $('rieTot').innerHTML=(rieMode==='anno'?`<div class="card basecard"><div class="seg" id="baseSeg"><button data-b="lavoro" class="${baseAnno()==='lavoro'?'on':''}">Quando ho lavorato</button><button data-b="cassa" class="${baseAnno()==='cassa'?'on':''}">Quando mi hanno pagato</button></div>
+    <p class="muted sm">${baseAnno()==='cassa'?`Per le tasse conta l’anno in cui ricevi i soldi: un lavoro di dicembre pagato a gennaio va nell’anno dopo. Qui conto solo ciò che hai segnato come pagato, alla data del pagamento.${A.fuori?` Lavori del ${y} non ancora segnati come pagati: ${eur(A.fuori)}.`:''}`:'Totali per il mese in cui hai lavorato. Per le tasse scegli “Quando mi hanno pagato”.'}</p></div>`:'')+`<div class="hero"><div class="herotot" data-tot="1" role="button" tabindex="0" aria-expanded="${rieSplit}"><small>${rieMode==='mese'?'Guadagnato nel mese':'Guadagnato nell’anno'} ${rieSplit?'▴':'▾'}</small><b>${eur(r2(tot.netto+tot.rimb))}</b></div><div><small>Ancora da incassare</small><b>${eur(daInc)}</b></div><div><small>Ritenuta d'acconto</small><b>${eur(tot.rit)}</b></div><div><small>Rimborsi spese</small><b>${eur(tot.rimb)}</b></div></div>`;
   if(rieSplit)$('rieTot').innerHTML+=splitCard(per,tot);
   let h=Object.values(per).filter(t=>t.n).map(t=>card(t,t.p)).join('')||'<p class="muted">Nessuna attività in questo periodo.</p>';
   $('rieCards').innerHTML=h;
   const nonPag=dv.filter(d=>!d.pag);
   let extra=`<div class="card sec2"><h3>Da incassare</h3>${nonPag.length?nonPag.map(d=>`<div class="due" style="--c:${d.p.colore}"><span class="bar"></span><span class="tx"><b>${esc(d.p.nome)} · ${d.t==='r'?'rimborso spese':'compensi'}</b><small>${esc(monthName(d.ym))} · ${giorniDa(d.ym)?`da ${giorniDa(d.ym)} giorni`:'mese in corso'}</small></span><b class="amt ${giorniDa(d.ym)>45?'late':''}">${eur(d.imp)}</b><button class="btn ghost sm" data-pag="${d.key}">Pagato</button></div>`).join(''):'<p class="muted">Tutto incassato. 🎉</p>'}
-    ${dv.some(d=>d.pag)?`<details class="extra"><summary>Già pagati (${dv.filter(d=>d.pag).length})</summary>${dv.filter(d=>d.pag).reverse().map(d=>`<div class="due paid" style="--c:${d.p.colore}"><span class="bar"></span><span class="tx"><b>${esc(d.p.nome)} · ${d.t==='r'?'rimborso':'compensi'}</b><small>${esc(monthName(d.ym))} · pagato il ${parseYmd(d.pag.data||today()).toLocaleDateString('it-IT')}</small></span><b class="amt">${eur(d.imp)}</b><button class="btn ghost sm" data-unpag="${d.key}">Annulla</button></div>`).join('')}</details>`:''}</div>`;
+    ${dv.some(d=>d.pag)?`<details class="extra"><summary>Già pagati (${dv.filter(d=>d.pag).length})</summary>${dv.filter(d=>d.pag).reverse().map(d=>`<div class="due paid" style="--c:${d.p.colore}"><span class="bar"></span><span class="tx"><b>${esc(d.p.nome)} · ${d.t==='r'?'rimborso':'compensi'}</b><small>${esc(monthName(d.ym))} · pagato il ${parseYmd(d.pag.data||today()).toLocaleDateString('it-IT')}</small></span><b class="amt">${eur(d.imp)}</b><button class="btn ghost sm" data-unpag="${d.key}">Modifica</button></div>`).join('')}</details>`:''}</div>`;
   if(rieMode==='anno'){
     let rows='';const T={rimb:0,lordo:0,rit:0,netto:0};
-    for(let m=1;m<=12;m++){const ym=`${y}-${pad(m)}`;const r=riepilogo(ym).tot;if(!r.n)continue;for(const k in T)T[k]=r2(T[k]+r[k]);
-      rows+=`<tr data-ym="${ym}"><td>${MESI[m-1]}</td><td>${eur(r.rimb)}</td><td>${eur(r.lordo)}</td><td>${eur(r.rit)}</td><td>${eur(r.netto)}</td><td><b>${eur(r2(r.netto+r.rimb))}</b></td></tr>`;}
-    extra=graficoAnno(y)+`<div class="card"><h3>Soglie dell’anno</h3>${soglieHtml(y)}</div>`+extra+
+    for(let m=1;m<=12;m++){const ym=`${y}-${pad(m)}`;const r=A.mesi[m-1];if(!r.n)continue;for(const k in T)T[k]=r2(T[k]+r[k]);
+      rows+=`<tr${baseAnno()==='cassa'?'':` data-ym="${ym}"`}><td>${MESI[m-1]}</td><td>${eur(r.rimb)}</td><td>${eur(r.lordo)}</td><td>${eur(r.rit)}</td><td>${eur(r.netto)}</td><td><b>${eur(r2(r.netto+r.rimb))}</b></td></tr>`;}
+    extra=graficoAnno(y,A.mesi)+`<div class="card"><h3>Soglie dell’anno</h3>${soglieHtml(y)}</div>`+extra+
       (rows?`<div class="tw"><table class="tab"><thead><tr><th>Mese</th><th>Rimborsi</th><th>Lordo</th><th>Ritenuta</th><th>Netto</th><th>Totale</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td>Totale</td><td>${eur(T.rimb)}</td><td>${eur(T.lordo)}</td><td>${eur(T.rit)}</td><td>${eur(T.netto)}</td><td>${eur(r2(T.netto+T.rimb))}</td></tr></tfoot></table></div>`:'')+
       `<div class="card"><h3>Per il commercialista</h3><p class="muted sm">Un PDF con lordo, ritenute, netto e rimborsi ${y} per ogni committente: utile per la dichiarazione e per controllare le Certificazioni Uniche.</p><div class="acts"><button class="btn" id="pdfAnno">Scarica riepilogo ${y}</button><button class="btn ghost" id="pdfAnnoInv">Invia</button></div></div>`;
   }
   $('rieAnno').innerHTML=extra;
 };
 async function pdfAnnoBytes(y){
-  const pr=D().profilo;const {per,tot}=riepilogo(y);
+  const pr=D().profilo;const A=aggrega(y);const {per,tot}=A;
   const th=t=>`<th style="border:1px solid #0f3d35;background:#0f6b5c;color:#fff;padding:6px;font-size:10pt">${t}</th>`;
   const td=(t,al='right',b)=>`<td style="border:1px solid #9aa5a1;padding:5px 6px;text-align:${al};font-size:10pt;white-space:nowrap;${b?'font-weight:700;background:#e3f1ec;':''}">${t}</td>`;
   const ps=Object.values(per).filter(t=>t.n);
   const t1=`<table style="border-collapse:collapse;width:100%"><tr>${['Committente / progetto','Tipo','Ore','Lordo','Ritenuta','Netto','Rimborsi'].map(th).join('')}</tr>${ps.map(t=>`<tr>${td(esc(t.p.nome),'left')}${td(t.p.ore.attivo?esc(CATEGORIE[t.p.ore.categoria||'altro']):'Solo rimborsi','left')}${td(nf(t.ore))}${td(eur(t.lordo))}${td(eur(t.rit))}${td(eur(t.netto))}${td(eur(t.rimb))}</tr>`).join('')}<tr>${td('Totale','left',1)}${td('','left',1)}${td(nf(tot.ore),'right',1)}${td(eur(tot.lordo),'right',1)}${td(eur(tot.rit),'right',1)}${td(eur(tot.netto),'right',1)}${td(eur(tot.rimb),'right',1)}</tr></table>`;
-  let rows='';for(let m=1;m<=12;m++){const r=riepilogo(`${y}-${pad(m)}`).tot;if(!r.n)continue;rows+=`<tr>${td(MESI[m-1],'left')}${td(eur(r.lordo))}${td(eur(r.rit))}${td(eur(r.netto))}${td(eur(r.rimb))}</tr>`;}
+  let rows='';for(let m=1;m<=12;m++){const r=A.mesi[m-1];if(!r.n)continue;rows+=`<tr>${td(MESI[m-1],'left')}${td(eur(r.lordo))}${td(eur(r.rit))}${td(eur(r.netto))}${td(eur(r.rimb))}</tr>`;}
   const t2=`<table style="border-collapse:collapse;width:100%;margin-top:8px"><tr>${['Mese','Lordo','Ritenuta','Netto','Rimborsi'].map(th).join('')}</tr>${rows}</table>`;
   const sg=soglieAnno(y).map(s=>`<li>${esc(s.nome)}: ${eur(s.usato)} su ${eur(s.limite)}</li>`).join('');
   const pg=newPage();const box=el('div','position:absolute;left:52px;top:52px;width:690px;font-family:system-ui,Arial,sans-serif;color:#111;font-size:10.5pt');
-  box.innerHTML=`<div style="font:700 18pt system-ui,Arial;color:#0f6b5c">Riepilogo compensi e rimborsi ${y}</div><div style="margin:4px 0 16px">${esc([pr.nome,pr.cognome].filter(Boolean).join(' '))}${pr.cf?' · C.F. '+esc(pr.cf):''} · creato il ${new Date().toLocaleDateString('it-IT')}</div>`+
+  box.innerHTML=`<div style="font:700 18pt system-ui,Arial;color:#0f6b5c">Riepilogo compensi e rimborsi ${y}</div><div style="font-size:10pt;color:#333">${baseAnno()==='cassa'?'Conteggio per data di pagamento (principio di cassa)':'Conteggio per mese in cui è stato svolto il lavoro'}</div><div style="margin:4px 0 16px">${esc([pr.nome,pr.cognome].filter(Boolean).join(' '))}${pr.cf?' · C.F. '+esc(pr.cf):''} · creato il ${new Date().toLocaleDateString('it-IT')}</div>`+
     `<div style="font-weight:700;margin:6px 0">Per committente</div>${t1}<div style="font-weight:700;margin:16px 0 0">Per mese</div>${t2}`+
     `<div style="font-weight:700;margin:16px 0 4px">Soglie</div><ul style="margin:0;padding-left:18px">${sg}</ul>`+
     `<p style="font-size:9pt;color:#555;margin-top:14px">I rimborsi spese documentati non sono compensi. Le ritenute indicate sono quelle calcolate da Soldirini sulle attività segnate: confrontale con le Certificazioni Uniche ricevute.</p>`;
@@ -477,7 +507,7 @@ renderDoc=function(){
   const root=D().root;if(!DEMO&&root?.link)h+=`<p class="muted sm">Tutti i file sono nella cartella <a href="${esc(root.link)}" target="_blank" rel="noopener">Soldirini ↗</a>${root.dove?' ('+esc(root.dove)+')':''}.</p>`;
   $('docList').innerHTML=h;
 };
-function payBtn(key,imp){if(!(imp>0))return '';const pg=pagamenti()[key];return pg?.pagato?`<button class="btn paid sm" data-unpag="${key}" title="Tocca per annullare">✓ Pagato il ${parseYmd(pg.data||today()).toLocaleDateString('it-IT',{day:'numeric',month:'short'})}</button>`:`<button class="btn ghost sm" data-pag="${key}">Segna pagato</button>`;}
+function payBtn(key,imp){if(!(imp>0))return '';const pg=pagamenti()[key];return pg?.pagato?`<button class="btn paid sm" data-unpag="${key}" title="Tocca per cambiare la data">✓ Pagato il ${parseYmd(pg.data||today()).toLocaleDateString('it-IT',{day:'numeric',month:'short'})}</button>`:`<button class="btn ghost sm" data-pag="${key}">Segna pagato</button>`;}
 function annoTariffa(r){if(r.tariffaAnno)return r.tariffaAnno;const m=/(\d{2,4})\s*$/.exec(r.tariffaData||'');if(m){const y=+m[1];return y<100?2000+y:y;}return nowY();}
 function acaBanner(p){if(!p.rimborso.attivo)return '';const a=annoTariffa(p.rimborso);if(a>=nowY())return '';
   return `<div class="note">La tariffa ACI di questo progetto è del ${a||'anno scorso'}. Controlla quella del ${nowY()} sul sito <a href="https://www.aci.it" target="_blank" rel="noopener">ACI (costi chilometrici)</a> e aggiornala nel progetto.</div>`;}
@@ -631,9 +661,11 @@ function bindPlus(){
     if(g('data-xrimb'))xlsxRimborsi(g('data-xrimb'),cur.slice(0,4));
     if(g('data-xore'))xlsxOre(cur.slice(0,4));
     if(g('data-xcust'))xlsxCustom(g('data-xcust'),cur.slice(0,4));
-    if(g('data-pag'))setPagato(g('data-pag'),true);
-    if(g('data-unpag'))setPagato(g('data-unpag'),false);};
-  $('docList').addEventListener('click',docClick);$('rieAnno').addEventListener('click',docClick);
+    if(g('data-pag'))chiediPagamento(g('data-pag'));
+    if(g('data-unpag'))chiediPagamento(g('data-unpag'));};
+  $('docList').addEventListener('click',docClick);$('rieAnno').addEventListener('click',docClick);$('rieCards').addEventListener('click',docClick);
+  $('rieTot').addEventListener('click',e=>{const b=e.target.closest('[data-b]');if(b){DB.meta.rieBase=b.dataset.b;persist();render();}});
+  $('rieAnno').addEventListener('change',e=>{const s=e.target.closest('[data-cat]');if(!s)return;const p=prog(s.dataset.cat);p.ore.categoria=s.value;p.updatedAt=Date.now();changed();render();toast('Tipo di compenso salvato');});
   $('rieAnno').addEventListener('click',async e=>{
     if(e.target.id==='pdfAnno'||e.target.id==='pdfAnnoInv'){busy(true,'Preparo il PDF…');try{const f=await pdfAnnoBytes(cur.slice(0,4));busy(false);
       if(e.target.id==='pdfAnno'){download(f.bytes,f.name,'application/pdf');toast('PDF scaricato');}else await inviaPdf(f,null,`Riepilogo compensi ${cur.slice(0,4)}`,`Ciao,\nti mando il riepilogo dei miei compensi e rimborsi del ${cur.slice(0,4)}.`);}catch(err){toast(errMsg(err),'err');}finally{busy(false);}}});

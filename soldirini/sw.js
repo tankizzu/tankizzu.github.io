@@ -1,6 +1,6 @@
 // Soldirini funziona anche senza rete.
 // Quando cambi i file su GitHub, aumenta il numero di versione qui sotto.
-const VERSIONE = 'soldirini-4';
+const VERSIONE = 'soldirini-5';
 const FILE = ['./', 'index.html', 'app.js', 'plus.js', 'xlsx.js', 'modelli.js', 'docs.js', 'fonts.css', 'manifest.json',
   'soldirini-tonda-192.png', 'soldirini-tonda-512.png', 'soldirini-quadrata-192.png', 'soldirini-quadrata-512.png', 'logo-bulldogs.jpg',
   'lib/jszip.min.js', 'lib/jspdf.umd.min.js', 'lib/html2canvas.min.js', 'tpl/ricevuta.xlsx', 'tpl/nota.xlsx', 'tpl/ore.xlsx', 'tpl/esempio-polisportiva.xlsx'];
