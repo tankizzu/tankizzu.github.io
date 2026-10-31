@@ -27,8 +27,9 @@ const min=t=>{const m=/^(\d{1,2})[:.](\d{2})$/.exec(String(t||'').trim());return
 const normT=t=>{const v=min(t);return v==null?'':`${Math.floor(v/60)}:${pad(v%60)}`;};
 
 // ---------------- dati ----------------
-const STORE='soldirini-v1';
-const emptyData=()=>({v:1,profilo:{cognome:'',nome:'',natoA:'',dataNascita:'',residenza:'',via:'',cf:'',auto:{modello:'',targa:''},updatedAt:0},progetti:{},eventi:{},mesi:{},files:{},root:null});
+const DEMO=false;
+const STORE=DEMO?'soldirini-demo-v1':'soldirini-v1';
+const emptyData=()=>({v:1,pagamenti:{},impost:{soglie:null,tema:'auto',promemoria:false,updatedAt:0},profilo:{cognome:'',nome:'',natoA:'',dataNascita:'',residenza:'',via:'',cf:'',auto:{modello:'',targa:''},updatedAt:0},progetti:{},eventi:{},mesi:{},files:{},root:null});
 let DB=(()=>{try{return JSON.parse(localStorage.getItem(STORE)||'null');}catch(e){return null;}})()||{};
 DB.data=DB.data||emptyData();
 DB.meta=Object.assign({dataId:null,seq:0,synced:0,lastSync:0,queue:{},account:null,importedOld:false},DB.meta||{});
@@ -36,12 +37,13 @@ function persist(){try{localStorage.setItem(STORE,JSON.stringify(DB));}catch(e){
 const D=()=>DB.data;
 const progetti=(all)=>Object.values(D().progetti).filter(p=>all||!p.deleted).sort((a,b)=>(a.ordine??0)-(b.ordine??0)||a.nome.localeCompare(b.nome));
 const prog=id=>D().progetti[id];
-const eventi=()=>Object.values(D().eventi).filter(e=>!e.deleted);
-const eventiDel=(fn)=>eventi().filter(fn).sort((a,b)=>(a.data+(a.ora||'')+a.created).localeCompare(b.data+(b.ora||'')+b.created));
+const eventiTutti=()=>Object.values(D().eventi).filter(e=>!e.deleted);
+const eventi=()=>eventiTutti().filter(e=>e.stato!=='previsto');
+const eventiDel=(fn,tutti)=>(tutti?eventiTutti():eventi()).filter(fn).sort((a,b)=>(a.data+(a.ora||'')+a.created).localeCompare(b.data+(b.ora||'')+b.created));
 
 function changed(){DB.meta.seq++;persist();scheduleSync(2500);}
 function markExport(keys){for(const k of keys)if(k)DB.meta.queue[k]=Date.now();}
-const exportKeysOf=e=>{if(!e)return [];const y=e.data.slice(0,4),k=[];if(e.rimborso)k.push(`rimb|${e.pid}|${y}`);if(e.ore)k.push(`ore|${y}`);return k;};
+const exportKeysOf=e=>{if(!e)return [];const y=e.data.slice(0,4),k=[];const cu=prog(e.pid)?.modello?.tipo==='custom';if(cu)k.push(`cust|${e.pid}|${y}`);else if(e.rimborso||(e.spese||[]).length)k.push(`rimb|${e.pid}|${y}`);if(e.ore)k.push(`ore|${y}`);return k;};
 
 function nuovoProgetto(o={}){
   const n=progetti(true).length;const used=new Set(progetti().map(p=>p.colore));
@@ -95,7 +97,7 @@ function riepilogo(prefix){ // prefix: 'YYYY-MM' o 'YYYY'
   const mesi=new Set();
   for(const e of eventi()){if(!e.data.startsWith(prefix)||!per[e.pid])continue;const t=per[e.pid];t.n++;
     const s=soldiOre(e);t.ore+=s.ore;t.lordo+=s.lordo;t.rit+=s.rit;t.netto+=s.netto;
-    if(e.rimborso&&kmOf(e)>0){t.km+=kmOf(e);mesi.add(e.pid+'|'+e.data.slice(0,7));}}
+    if(e.rimborso&&kmOf(e)>0)t.km+=kmOf(e);if((e.rimborso&&kmOf(e)>0)||(e.spese||[]).length)mesi.add(e.pid+'|'+e.data.slice(0,7));}
   for(const k of mesi){const [pid,ym]=k.split('|');per[pid].rimb+=docData(pid,ym).tot;}
   for(const t of Object.values(per)){for(const k of ['km','rimb','ore','lordo','rit','netto']){t[k]=r2(t[k]);tot[k]=r2(tot[k]+t[k]);}tot.n+=t.n;}
   return {per,tot};
@@ -106,6 +108,7 @@ function mergeMap(a,b){const o={};for(const k of new Set([...Object.keys(a||{}),
 function mergeData(a,b){
   if(!b)return a;
   return {v:1,profilo:(b.profilo?.updatedAt||0)>(a.profilo?.updatedAt||0)?b.profilo:a.profilo,
+    pagamenti:mergeMap(a.pagamenti,b.pagamenti),impost:(b.impost?.updatedAt||0)>(a.impost?.updatedAt||0)?b.impost:(a.impost||b.impost),
     progetti:mergeMap(a.progetti,b.progetti),eventi:mergeMap(a.eventi,b.eventi),mesi:mergeMap(a.mesi,b.mesi),files:mergeMap(a.files,b.files),
     root:(b.root?.updatedAt||0)>(a.root?.updatedAt||0)?b.root:a.root};
 }
@@ -318,9 +321,10 @@ async function processQueue(){
   const keys=Object.keys(DB.meta.queue).sort((a,b)=>(a.startsWith('folder')?0:1)-(b.startsWith('folder')?0:1));
   for(const k of keys){
     const ts=DB.meta.queue[k];const [kind,a,b]=k.split('|');
-    queueBusy=kind==='ore'?`Foglio ritenuta ${a}`:kind==='rimb'?`Fogli rimborsi ${prog(a)?.nome||''} ${b}`:`Cartella ${prog(a)?.nome||''}`;renderSync();
+    queueBusy=kind==='cust'?`Foglio ${prog(a)?.nome||''} ${b}`:kind==='ore'?`Foglio ritenuta ${a}`:kind==='rimb'?`Fogli rimborsi ${prog(a)?.nome||''} ${b}`:`Cartella ${prog(a)?.nome||''}`;renderSync();
     if(kind==='folder'){const p=prog(a);if(p&&!p.deleted)await ensureFolder(p);}
     else if(kind==='rimb')await exportRimborsi(a,b);
+    else if(kind==='cust')await exportCustom(a,b);
     else if(kind==='ore')await exportOre(a);
     if(DB.meta.queue[k]===ts)delete DB.meta.queue[k];persist();
   }
@@ -416,14 +420,14 @@ function renderCal(){
   const ps=progetti();
   $('filtri').innerHTML=ps.length>1?`<button class="fchip ${filtro?'':'on'}" data-f="">Tutti</button>`+ps.map(p=>`<button class="fchip ${filtro===p.id?'on':''}" data-f="${p.id}" style="--c:${p.colore}"><i></i>${esc(p.nome)}</button>`).join(''):'';
   const [y,m]=cur.split('-').map(Number);const first=new Date(y,m-1,1);const off=(first.getDay()+6)%7;const n=lastDay(cur);
-  const by={};for(const e of eventiDel(e=>e.data.startsWith(cur)&&(!filtro||e.pid===filtro)))(by[e.data]=by[e.data]||[]).push(e);
+  const by={};for(const e of eventiDel(e=>e.data.startsWith(cur)&&(!filtro||e.pid===filtro),true))(by[e.data]=by[e.data]||[]).push(e);
   let h=['lun','mar','mer','gio','ven','sab','dom'].map(d=>`<div class="dow">${d}</div>`).join('');
   for(let i=0;i<off;i++)h+='<div class="day empty"></div>';
   const t=today();
   for(let d=1;d<=n;d++){
     const id=`${cur}-${pad(d)}`;const es=by[id]||[];
     const cls=['day',id===t?'today':'',id===selDay&&!multi?'sel':'',multi&&selected.has(id)?'msel':'',[0,6].includes(new Date(y,m-1,d).getDay())?'we':''].join(' ');
-    h+=`<button class="${cls}" data-day="${id}"><span class="n">${d}</span><span class="evs">${es.slice(0,3).map(e=>{const p=prog(e.pid);return `<span class="ev" style="--c:${p?.colore||'#888'}">${esc(etichettaBreve(e))}</span>`;}).join('')}${es.length>3?`<span class="more">+${es.length-3}</span>`:''}</span></button>`;
+    h+=`<button class="${cls}" data-day="${id}"><span class="n">${d}</span><span class="evs">${es.slice(0,3).map(e=>{const p=prog(e.pid);return `<span class="ev${e.stato==='previsto'?' prev':''}" style="--c:${p?.colore||'#888'}">${esc(etichettaBreve(e))}</span>`;}).join('')}${es.length>3?`<span class="more">+${es.length-3}</span>`:''}</span></button>`;
   }
   $('grid').innerHTML=h;
   $('multiBtn').classList.toggle('on',multi);$('multiBtn').textContent=multi?'Fine selezione':'Più giorni';
@@ -436,16 +440,17 @@ function evRow(e,withDate){
   if(e.rimborso&&kmOf(e))bits.push(`${nf(kmOf(e),1)} km${e.luogo?' · '+esc(e.luogo):''}`);
   if(e.ore)bits.push(isFisso(e)?`compenso ${eur(s.lordo)}`:`${nf(s.ore)} h · ${eur(s.lordo)} lordi`);
   const d=parseYmd(e.data);
-  return `<button class="evrow" data-ev="${e.id}" style="--c:${p?.colore||'#888'}">${withDate?`<span class="dd"><b>${d.getDate()}</b>${GIORNI[d.getDay()].slice(0,3)}</span>`:''}<span class="bar"></span><span class="tx"><b>${esc(etichetta(e))}</b><small>${esc(p?.nome||'?')}${bits.length?' · '+bits.join(' · '):''}</small></span></button>`;
+  if((e.spese||[]).length)bits.push(`spese ${eur((e.spese||[]).reduce((a,x)=>a+(+x.importo||0),0))}`);
+  return `<button class="evrow${e.stato==='previsto'?' prev':''}" data-ev="${e.id}" style="--c:${p?.colore||'#888'}">${withDate?`<span class="dd"><b>${d.getDate()}</b>${GIORNI[d.getDay()].slice(0,3)}</span>`:''}<span class="bar"></span><span class="tx"><b>${esc(etichetta(e))}${e.stato==='previsto'?' <em class="tag">prevista</em>':''}${e.serie?' <em class="tag rip">↻</em>':''}</b><small>${esc(p?.nome||'?')}${bits.length?' · '+bits.join(' · '):''}</small></span></button>`;
 }
 function renderDay(){
   const box=$('dayBox');if(multi){box.hidden=true;return;}box.hidden=false;
   const d=parseYmd(selDay);$('dayTitle').textContent=`${GIORNI[d.getDay()]} ${d.getDate()} ${MESI[d.getMonth()]}`;
-  const es=eventiDel(e=>e.data===selDay);
+  const es=eventiDel(e=>e.data===selDay,true);
   $('dayList').innerHTML=es.length?es.map(e=>evRow(e)).join(''):'<p class="muted">Nessuna attività.</p>';
 }
 function renderLista(){
-  const es=eventiDel(e=>e.data.startsWith(cur)&&(!filtro||e.pid===filtro));
+  const es=eventiDel(e=>e.data.startsWith(cur)&&(!filtro||e.pid===filtro),true);
   $('listaN').textContent=es.length;
   $('lista').innerHTML=es.length?es.map(e=>evRow(e,true)).join(''):'<p class="muted">Ancora niente questo mese.</p>';
 }
@@ -574,8 +579,7 @@ function renderRiepilogo(){
     ${t.km||!p||p.rimborso.attivo?`<div class="kv"><span>Rimborsi km</span><b>${nf(t.km,1)} km · ${eur(t.rimb)}</b></div>`:''}
     ${t.lordo||!p||p.ore.attivo?`<div class="kv"><span>Ore</span><b>${nf(t.ore)}</b></div><div class="kv"><span>Lordo</span><b>${eur(t.lordo)}</b></div><div class="kv"><span>Ritenuta</span><b>− ${eur(t.rit)}</b></div><div class="kv"><span>Netto</span><b>${eur(t.netto)}</b></div>`:''}
     <div class="kv big"><span>Totale da ricevere</span><b>${eur(r2(t.netto+t.rimb))}</b></div></div>`;
-  $('rieTot').innerHTML=`<div class="hero"><div class="herotot" data-tot="1" role="button" tabindex="0" aria-expanded="${rieSplit}"><small>Da ricevere ${rieSplit?'▴':'▾'}</small><b>${eur(r2(tot.netto+tot.rimb))}</b></div><div><small>Ritenuta d'acconto</small><b>${eur(tot.rit)}</b></div><div><small>Lordo compensi</small><b>${eur(tot.lordo)}</b></div><div><small>Rimborsi km</small><b>${eur(tot.rimb)}</b></div></div>`;
-  if(rieSplit)$('rieTot').innerHTML+=splitCard(per,tot);
+  $('rieTot').innerHTML=`<div class="hero"><div><small>Da ricevere</small><b>${eur(r2(tot.netto+tot.rimb))}</b></div><div><small>Ritenuta d'acconto</small><b>${eur(tot.rit)}</b></div><div><small>Lordo compensi</small><b>${eur(tot.lordo)}</b></div><div><small>Rimborsi km</small><b>${eur(tot.rimb)}</b></div></div>`;
   $('rieCards').innerHTML=Object.values(per).filter(t=>t.n).map(t=>card(t,t.p)).join('')||'<p class="muted">Nessuna attività in questo periodo.</p>';
   if(rieMode==='anno'){
     const y=cur.slice(0,4);let rows='';const T={rimb:0,lordo:0,rit:0,netto:0};
@@ -909,7 +913,7 @@ function bind(){
   $('filtri').addEventListener('click',e=>{const b=e.target.closest('[data-f]');if(b){filtro=b.dataset.f;render();}});
   $('grid').addEventListener('click',e=>{const b=e.target.closest('[data-day]');if(!b)return;const d=b.dataset.day;
     if(multi){selected.has(d)?selected.delete(d):selected.add(d);renderCal();return;}
-    if(selDay===d&&!eventiDel(x=>x.data===d).length){openEv([d]);return;}
+    if(selDay===d&&!eventiDel(x=>x.data===d,true).length){openEv([d]);return;}
     selDay=d;renderCal();if(innerWidth<900)$('dayBox').scrollIntoView({behavior:'smooth',block:'nearest'});});
   $('multiBtn').onclick=()=>{multi=!multi;selected.clear();renderCal();};
   $('multiAdd').onclick=()=>openEv([...selected].sort());
@@ -993,7 +997,3 @@ async function toJpeg(file){
   return c.toDataURL('image/jpeg',0.86);
 }
 
-// ================= avvio =================
-bind();render();prepGis();
-if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});
-if(DB.meta.account)setTimeout(()=>sync(false),600);

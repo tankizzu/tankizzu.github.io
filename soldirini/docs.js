@@ -128,7 +128,7 @@ function cellBox(range,html,st,scale,ox,oy,lim){
   box.appendChild(span); clip.appendChild(box); return clip;
 }
 
-function buildRicevuta(d,logoSrc){
+function buildRicevuta(d,logoSrc,sigSrc){
   const page=newPage();
   // adatto alla pagina A4 le righe 1–52 (con 0,31" sopra, come nel file)
   const top=30, usableH=PAGE_H-top-8, contentH=rowY[52];
@@ -152,6 +152,8 @@ function buildRicevuta(d,logoSrc){
   });
   // logo sopra le celle, come l'immagine nel file Excel
   if(logoSrc){ const img=el('img',`position:absolute;left:${ox+R_LOGO.x*scale}px;top:${oy+R_LOGO.y*scale}px;width:${R_LOGO.w*scale}px;height:${R_LOGO.h*scale}px`); img.src=logoSrc; img.alt=''; page.appendChild(img); }
+  if(sigSrc){const x=ox+colX[14]*scale,y=oy+rowY[45]*scale,w=(colX[20]-colX[14])*scale,hh=(rowY[48]-rowY[45])*scale;
+    const img=el('img',`position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${hh}px;object-fit:contain`);img.src=sigSrc;img.alt='';page.appendChild(img);}
   return page;
 }
 
